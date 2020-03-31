@@ -1,0 +1,38 @@
+#Required libraries installed
+library(ggplot2)
+library(tm)
+library(stringr)
+library(wordcloud)
+library(syuzhet)
+
+#Textfile is read and made into a Corpus
+texts <- readLines("C:/Users/welcome/Downloads/x.txt")
+u <- VectorSource(texts)
+u <- VCorpus(u)
+
+#Cleaning the data
+u <- tm_map(u,tolower)
+u <- tm_map(u,removePunctuation)
+u <- tm_map(u,function(x) removeWords(x,stopwords("english")))
+u <- tm_map(u,stemDocument,language = "english")
+u <- tm_map(u,removeNumbers)
+u <- tm_map(u,PlainTextDocument)
+td.mat <- as.matrix(TermDocumentMatrix(u))
+mat <- as.matrix(td.mat)
+v <- sort(rowSums(mat),decreasing = TRUE)
+d <- data.frame(words = names(v),freq=v)
+head(d,10)
+
+#Wordcloud
+set.seed(1056)
+wordcloud(words = d$words, freq = d$freq, min.freq = 1, max.words = 200, random.order = FALSE, rot.per = 0.35, colors = brewer.pal(8, "Dark2"))
+
+#Sentiment Analysis Plot
+sentiment <- get_nrc_sentiment(texts)
+text <- cbind(texts,sentiment)
+TotalSent <- data.frame(colSums(text[,c(2:11)]))
+names(TotalSent) <- "count"
+TotalSent <- cbind("sentiment" = rownames(TotalSent),TotalSent)
+rownames(TotalSent) <- NULL
+library(ggplot2)
+ggplot(data = TotalSent, aes(x = sentiment, y = count)) + geom_bar(aes(fill = sentiment), stat = "identity")

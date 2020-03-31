@@ -1,0 +1,325 @@
+---
+title: '#MeTooAnalysis'
+author: "Shwetha Sridharan"
+date: "23 December 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## #MeToo Analysis
+###twitter data
+
+```{r}
+#Loading required packages
+library("devtools")
+library("httr")
+library("bit64")
+library("rjson")
+
+#Installing twitteR package from github and loading 
+#install_github("geoffjentry/twitteR")
+library("twitteR")
+
+```
+
+```{r}
+#Set api keys
+api_key<-"vBaeoWaqJxqAdzVmeiWu2MleY"
+api_secret<-"ijXiGKvx08FFVvR6qTEggCLFcViTY1kJN0QCyIapFQ16B6SNLV"
+access_token<-"904706778817896448-gPwLPvl6qa647tDtlR1N9XkYhw6mqk3"
+access_secret<-"LyRuasCi7h3534TGbc9hu6lA2jJHgqsqVB5navjmFukyV"
+
+#Authorization
+setup_twitter_oauth(api_key, api_secret, access_token, access_secret)
+
+#Getting the tweets with #metoo
+tweets = searchTwitter("#metoo", n = 1000, lang = "en")
+
+class(tweets)
+
+tweet.df<-twListToDF(tweets)
+tweet.df[190, c("id", "created", "screenName", "replyToSN", "favoriteCount", "retweetCount", "longitude", "latitude", "text")]
+
+#Extracting the text column
+tweets_text <- sapply(tweets, function(x) x$getText())
+
+#Converting it to a dataframe
+tweets_text = as.data.frame(tweets_text)
+names(tweets_text) = "text"
+```
+
+```{r}
+#Cleaning and pre-processing
+#Loading required packages
+#install.packages("SnowballC")
+#install.packages("wordcloud")
+#install.packages("tm")
+library(wordcloud)
+library(SnowballC)
+library(tm)
+
+#Store the 'text' column in a separate variable
+tweet = tweets_text$text
+
+#Clean the tweets using gsub:
+#Remove control characters
+tweet = gsub("[[:cntrl:]]", " ", tweet)
+#Remove retweets
+tweet <- gsub("(RT|via)((?:\\b\\W*@\\W+)+)", " ", tweet, ignore.case = T)
+# Remove "@ person'
+tweet <- gsub('@\\w+', '', tweet)
+#Remove punctuations
+tweet <- gsub("[[:punct:]]"," ", tweet)
+#Remove digits
+tweet <- gsub("[[:digit:]]"," ", tweet)
+#Remove links
+tweet <- gsub("http[s]?\\w+", " ", tweet)
+#Remove unwanted spaces
+tweet <- gsub("[ \t]{2,}", " ", tweet)
+tweet <- gsub("^\\s+|\\s+$", " ", tweet)
+#Remove NAs
+tweet <- tweet[!is.na(tweet)]
+#Remove all otheer insignificant symbols
+tweet = gsub("^ ", "", tweet)
+tweet = gsub(" $", "", tweet)
+tweet = gsub("[^[:alnum:] ]", " ", tweet)
+#Convert the text to lowercase
+tweet = tolower(tweet)
+
+```
+
+```{r}
+#Store the text in a Corpus
+tweet_corpus = VCorpus(VectorSource(tweet))
+#Remove stopwords
+tweet_corpus = tm_map(tweet_corpus, removeWords, c(stopwords("en"), "amp"))
+#Remove whitespace
+tweet_corpus = tm_map(tweet_corpus, stripWhitespace)
+```
+
+```{r}
+#Creating a Term Document Matrix
+tweet_tdm = TermDocumentMatrix(tweet_corpus)
+#Converting into matrix
+tweet_m = as.matrix(tweet_tdm)
+```
+
+```{r}
+#To get word frequency
+term_frequency = rowSums(tweet_m)
+term_frequency = sort(term_frequency, decreasing = TRUE)
+#inspect frequent words
+freq.terms<-findFreqTerms(tweet_tdm,lowfreq=200)
+term.freq<-rowSums(as.matrix(tweet_tdm))
+term.freq<-subset(term.freq,term.freq>40)
+df<-data.frame(term=names(term.freq),freq=term.freq)
+#install.packages("ggplot2", repos="http://cran.rstudio.com/", dependencies=TRUE)
+library(ggplot2)
+ggplot(df,aes(x=term,y=freq))+geom_bar(stat="identity")+xlab("words")+ylab("freq")+coord_flip()+theme(axis.text=element_text(size=7))
+findAssocs(tweet_tdm, "metoo", 0.1)
+
+
+
+```
+
+```{r}
+#Plotting maximum frequently used words
+barplot(term_frequency[1:15], col = "brown3", las = 2, main = "Frequency Plot of words")
+word_frequency = data.frame(term = names(term_frequency), num = term_frequency)
+```
+
+```{r}
+#Creating a wordcloud
+wordcloud(word_frequency$term, word_frequency$num, min.freq = 10, max.words = 500, random.order = 'F', rot.per = 0.1, colors = brewer.pal(8, "Dark2"), scale = c(3,0.6), random.color = T)
+
+```
+
+```{r}
+#Word clustering with dendrogram
+#To limit the number of words in TDM
+tweet_tdm_s = removeSparseTerms(tweet_tdm, sparse = 0.95)
+tweet_m_s = as.matrix(tweet_tdm_s)
+tweet_df = as.data.frame(tweet_m_s)
+#To compute the diff b/w each row of the matrix
+distance = dist(tweet_df)
+#To perform cluster analysis
+hc = hclust(distance)
+#plotting the dendrogram
+plot(hc)
+```
+
+```{r}
+#constructing network analysis weighted graph
+#source("http://bioconductor.org/biocLite.R")
+#biocLite("Rgraphviz")
+#install.packages("bnlearn")
+library("bnlearn")
+library(graph)
+#library(rgraphviz)
+freq.terms<-findFreqTerms(tweet_tdm,lowfreq=275)
+plot(tweet_tdm, term = freq.terms, corThreshold = 0.05, weighting = T)
+
+```
+
+```{r}
+#Sentiment Analysis of metoo tweets
+#require(devtools) 
+#install_github("sentiment140", "okugami79")
+library(sentimentr) 
+sentiments <- sentiment(tweet.df$text) 
+table(sentiments$polarity)
+## ## neutral positive ## 428 20
+# sentiment plot 
+sentiments$score <- 0 
+sentiments$score[sentiments$polarity == "positive"] <- 1 
+sentiments$score[sentiments$polarity == "negative"] <- -1 
+sentiments$date <- as.Date(tweet.df$created) 
+result <- aggregate(score ~ date, data = sentiments, sum) 
+show(result)
+set.seed(1)
+```
+
+```{r}
+hist(sentiments$score, breaks=50,
+     col=c("blue"),
+     xlab="Negative                              Neutral                             Positive", 
+     main="Histogram of Sentiments")
+```
+
+```{r}
+#Installing required packages
+library(ggplot2)
+library(stringr)
+library(syuzhet)
+library(sentiment) 
+usable=str_replace_all(tweet.df$text,"[^[:graph:]]", " ") 
+
+#Sentiment Analysis
+sentiment <- get_nrc_sentiment(usable)
+text <- cbind(tweet.df$text,sentiment)
+View(text)
+TotalSent <- data.frame(colSums(text[,c(2:11)]))
+names(TotalSent) <- "count"
+TotalSent <- cbind("sentiment" = rownames(TotalSent),TotalSent)
+rownames(TotalSent) <- NULL
+ggplot(data = TotalSent, aes(x = sentiment, y = count)) + geom_bar(aes(fill = sentiment), stat = "identity")
+```
+
+```{r}
+#Maximum Retweeted - Analysis
+selected <- tweet.df[which(tweet.df$retweetCount >= 500),]
+table(selected$retweetCount)
+head(selected)
+times <-factor(strftime(tweet.df$created,format= "%H:%M"))
+plot(x=times, y=tweet.df$retweetCount, type="l", col="yellow", xlab="Time", ylab="Retweet Count") 
+
+```
+
+## #MeToo data from Facebook
+
+```{r}
+#install.packages("Rfacebook")
+#install.packages("RCurl")
+library("Rfacebook")
+library("RCurl")
+
+#Extracting data from facebook
+fb_oauth = fbOAuth(app_id = "183363555563941", app_secret = "d959362d327978ac2c3011d514195765",extended_permissions = TRUE)
+save(fb_oauth, file = "fb_oauth")
+load("fb_oauth")
+me <- getUsers("me", token = fb_oauth)
+me$name
+searchedPages <- searchPages("metoo",token= fb_oauth,n=5000)
+searchedPages<-searchedPages[searchedPages$category=="Community",]
+View(searchedPages[searchedPages$category=="Community",])
+write.csv(searchedPages, file = "Metoodata.csv")
+```
+
+```{r}
+#install.packages("tm")
+#install.packages("wordcloud")
+#install.packages("RColorBrewer")
+
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+
+#Preprocessing and cleaning data
+speech = "C:\\Users\\shwet\\Desktop\\DBProject\\Metoodata.csv"
+metoo_txt = readLines(speech)
+metoo<-Corpus(VectorSource(metoo_txt))
+metoo_data<-tm_map(metoo,stripWhitespace)
+metoo_data<-tm_map(metoo_data,tolower)
+metoo_data<-tm_map(metoo_data,removeNumbers)
+metoo_data<-tm_map(metoo_data,removePunctuation)
+metoo_data<-tm_map(metoo_data,removeWords, stopwords("english"))
+metoo_data<-tm_map(metoo_data,removeWords,c("and","the","our","that","for","are","also","more","has","must","have","should","this","with"))
+tdm_metoo<-TermDocumentMatrix (metoo_data) 
+
+#Conversion to termdocument matrix
+TDM1<-as.matrix(tdm_metoo)
+V = sort(rowSums(TDM1), decreasing = TRUE)
+
+#Wordcloud
+wordcloud(metoo_data, scale=c(4,0.25), max.words=200, random.order=FALSE, rot.per=0.35, use.r.layout=FALSE, colors=brewer.pal(8, "Dark2"))
+View(V)
+```
+
+```{r}
+#install.packages("ggplot2")
+library(ggplot2)
+V_freq<-factor(V)
+
+#Analysis plot
+ggplot(data=V_freq, aes(x=V[0:10,0], y=V[0:10,1])) +
+  geom_bar(stat="identity")
+plot( sort(TDM1, decreasing=TRUE)[1:5] )
+```
+
+## Mining data from WhatsApp
+
+```{r}
+#Required libraries installed
+library(ggplot2)
+library(tm)
+library(stringr)
+library(wordcloud)
+install.packages("syuzhet")
+library(syuzhet)
+
+#Textfile is read and made into a Corpus
+texts <- readLines("chat.txt")
+u <- VectorSource(texts)
+u <- VCorpus(u)
+
+#Cleaning the data
+u <- tm_map(u,tolower)
+u <- tm_map(u,removePunctuation)
+u <- tm_map(u,function(x) removeWords(x,stopwords("english")))
+u <- tm_map(u,stemDocument,language = "english")
+u <- tm_map(u,removeNumbers)
+u<- iconv(u, 'UTF-8', 'ASCII')
+u <- tm_map(u,PlainTextDocument)
+td.mat <- as.matrix(TermDocumentMatrix(u))
+mat <- as.matrix(td.mat)
+v <- sort(rowSums(mat),decreasing = TRUE)
+d <- data.frame(words = names(v),freq=v)
+head(d,10)
+
+#Wordcloud
+set.seed(1056)
+wordcloud(words = d$words, freq = d$freq, min.freq = 1, max.words = 200, random.order = FALSE, rot.per = 0.35, colors = brewer.pal(8, "Dark2"))
+
+#Sentiment Analysis Plot
+sentiment <- get_nrc_sentiment(texts)
+text <- cbind(texts,sentiment)
+TotalSent <- data.frame(colSums(text[,c(2:11)]))
+names(TotalSent) <- "count"
+TotalSent <- cbind("sentiment" = rownames(TotalSent),TotalSent)
+rownames(TotalSent) <- NULL
+library(ggplot2)
+ggplot(data = TotalSent, aes(x = sentiment, y = count)) + geom_bar(aes(fill = sentiment), stat = "identity")
+```
