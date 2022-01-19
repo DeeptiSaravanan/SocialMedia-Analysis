@@ -1,6 +1,6 @@
 ---
 title: '#MeTooAnalysis'
-author: "Shwetha Sridharan"
+author: "Deepti Saravanan"
 date: "23 December 2017"
 output: html_document
 ---
